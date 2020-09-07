@@ -99,6 +99,12 @@ config TARGET_IMX8MN_DDR4_EVK
 	select SUPPORT_SPL
 	select IMX8M_DDR4
 
+config TARGET_WESTERMO_ENVOY
+	bool "Westermo Envoy Platform"
+	select IMX8MN
+	select SUPPORT_SPL
+	select IMX8M_LPDDR4
+
 config TARGET_IMX8MP_EVK
 	bool "imx8mp LPDDR4 EVK board"
 	select IMX8MP
@@ -139,5 +145,6 @@ source "board/freescale/imx8mm_val/Kconfig"
 source "board/freescale/imx8mn_evk/Kconfig"
 source "board/freescale/imx8mp_evk/Kconfig"
 source "board/toradex/verdin-imx8mm/Kconfig"
+source "board/westermo/envoy/Kconfig"
 
 endif

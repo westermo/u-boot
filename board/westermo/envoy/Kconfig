@@ -1,0 +1,14 @@
+if TARGET_WESTERMO_ENVOY
+
+config SYS_BOARD
+	default "envoy"
+
+config SYS_VENDOR
+	default "westermo"
+
+config SYS_CONFIG_NAME
+	default "westermo_envoy"
+
+source "board/freescale/common/Kconfig"
+
+endif
