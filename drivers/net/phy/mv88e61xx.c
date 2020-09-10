@@ -354,8 +354,8 @@ static int mv88e61xx_phy_wait(struct phy_device *phydev)
 	return -ETIMEDOUT;
 }
 
-static int mv88e61xx_phy_read_indirect(struct mii_dev *smi_wrapper, int dev,
-		int devad, int reg)
+static int mv88e61xx_smi_phy_read(struct mii_dev *smi_wrapper, int dev,
+				  int devad, int reg)
 {
 	struct mv88e61xx_phy_priv *priv;
 	struct phy_device *phydev;
@@ -379,8 +379,8 @@ static int mv88e61xx_phy_read_indirect(struct mii_dev *smi_wrapper, int dev,
 				  GLOBAL2_REG_PHY_DATA);
 }
 
-static int mv88e61xx_phy_write_indirect(struct mii_dev *smi_wrapper, int dev,
-		int devad, int reg, u16 data)
+static int mv88e61xx_smi_phy_write(struct mii_dev *smi_wrapper, int dev,
+				   int devad, int reg, u16 data)
 {
 	struct mv88e61xx_phy_priv *priv;
 	struct phy_device *phydev;
@@ -405,19 +405,84 @@ static int mv88e61xx_phy_write_indirect(struct mii_dev *smi_wrapper, int dev,
 	return mv88e61xx_phy_wait(phydev);
 }
 
+static int mv88e61xx_smi_read(struct mii_dev *smi, int dev,
+			      int devad, int reg)
+{
+	struct phy_device *phydev = smi->priv;
+
+	return mv88e61xx_reg_read(phydev, dev, reg);
+}
+
+static int mv88e61xx_smi_write(struct mii_dev *smi, int dev,
+			       int devad, int reg, u16 data)
+{
+	struct phy_device *phydev = smi->priv;
+
+	return mv88e61xx_reg_write(phydev, dev, reg, data);
+}
+
+static int mv88e61xx_smi_register(struct phy_device *phydev)
+{
+	struct mii_dev *smi, *smi_phy;
+	int err;
+
+	smi = mdio_alloc();
+	if (!smi) {
+		err = -ENOMEM;
+		goto err;
+	}
+
+	strncpy(smi->name, "smi", sizeof(smi->name));
+	smi->priv = phydev;
+	smi->read = mv88e61xx_smi_read;
+	smi->write = mv88e61xx_smi_write;
+
+	err = mdio_register(smi);
+	if (err)
+		goto err_free_smi;
+
+	smi_phy = mdio_alloc();
+	if (!smi_phy) {
+		err = -ENOMEM;
+		goto err_unreg_smi;
+	}
+
+	strncpy(smi_phy->name, "smi-phy", sizeof(smi_phy->name));
+	smi_phy->priv = phydev;
+	smi_phy->read = mv88e61xx_smi_phy_read;
+	smi_phy->write = mv88e61xx_smi_phy_write;
+
+	err = mdio_register(smi_phy);
+	if (err)
+		goto err_free_smi_phy;
+
+	phydev->bus = smi_phy;
+	return 0;
+
+err_free_smi_phy:
+	free(smi_phy);
+err_unreg_smi:
+	mdio_unregister(smi);
+err_free_smi:
+	free(smi);
+err:
+	return err;
+}
+
+
 /* Wrapper function to make calls to phy_read_indirect simpler */
 static int mv88e61xx_phy_read(struct phy_device *phydev, int phy, int reg)
 {
-	return mv88e61xx_phy_read_indirect(phydev->bus, DEVADDR_PHY(phy),
-					   MDIO_DEVAD_NONE, reg);
+	return mv88e61xx_smi_phy_read(phydev->bus, DEVADDR_PHY(phy),
+				      MDIO_DEVAD_NONE, reg);
 }
 
 /* Wrapper function to make calls to phy_read_indirect simpler */
 static int mv88e61xx_phy_write(struct phy_device *phydev, int phy,
 		int reg, u16 val)
 {
-	return mv88e61xx_phy_write_indirect(phydev->bus, DEVADDR_PHY(phy),
-					    MDIO_DEVAD_NONE, reg, val);
+	return mv88e61xx_smi_phy_write(phydev->bus, DEVADDR_PHY(phy),
+				       MDIO_DEVAD_NONE, reg, val);
 }
 
 static int mv88e61xx_port_read(struct phy_device *phydev, u8 port, u8 reg)
@@ -1017,7 +1082,6 @@ static int mv88e61xx_priv_reg_offs_pre_init(struct phy_device *phydev)
 
 static int mv88e61xx_probe(struct phy_device *phydev)
 {
-	struct mii_dev *smi_wrapper;
 	struct mv88e61xx_phy_priv *priv;
 	int res;
 
@@ -1032,17 +1096,6 @@ static int mv88e61xx_probe(struct phy_device *phydev)
 	memset(priv, 0, sizeof(*priv));
 
 	/*
-	 * This device requires indirect reads/writes to the PHY registers
-	 * which the generic PHY code can't handle.  Make a wrapper MII device
-	 * to handle reads/writes
-	 */
-	smi_wrapper = mdio_alloc();
-	if (!smi_wrapper) {
-		free(priv);
-		return -ENOMEM;
-	}
-
-	/*
 	 * Store the mdio bus in the private data, as we are going to replace
 	 * the bus with the wrapper bus
 	 */
@@ -1055,19 +1108,11 @@ static int mv88e61xx_probe(struct phy_device *phydev)
 	 */
 	priv->smi_addr = phydev->addr;
 
-	/*
-	 * Store the phy_device in the wrapper mii device. This lets us get it
-	 * back when genphy functions call phy_read/phy_write.
-	 */
-	smi_wrapper->priv = phydev;
-	strncpy(smi_wrapper->name, "indirect mii", sizeof(smi_wrapper->name));
-	smi_wrapper->read = mv88e61xx_phy_read_indirect;
-	smi_wrapper->write = mv88e61xx_phy_write_indirect;
-
-	/* Replace the bus with the wrapper device */
-	phydev->bus = smi_wrapper;
-
 	phydev->priv = priv;
+
+	res = mv88e61xx_smi_register(phydev);
+	if (res)
+		return res;
 
 	res = mv88e61xx_priv_reg_offs_pre_init(phydev);
 	if (res < 0)
@@ -1112,10 +1157,6 @@ static int mv88e61xx_probe(struct phy_device *phydev)
 		free(priv);
 		return -ENODEV;
 	}
-
-	res = mdio_register(smi_wrapper);
-	if (res)
-		printf("Failed to register SMI bus\n");
 
 	return 0;
 }
@@ -1309,13 +1350,13 @@ int get_phy_id(struct mii_dev *bus, int smi_addr, int devad, u32 *phy_id)
 	if (val < 0)
 		return val;
 
-	val = mv88e61xx_phy_read_indirect(&temp_mii, 1, devad, MII_PHYSID1);
+	val = mv88e61xx_smi_phy_read(&temp_mii, 1, devad, MII_PHYSID1);
 	if (val < 0)
 		return -EIO;
 
 	*phy_id = val << 16;
 
-	val = mv88e61xx_phy_read_indirect(&temp_mii, 1, devad, MII_PHYSID2);
+	val = mv88e61xx_smi_phy_read(&temp_mii, 1, devad, MII_PHYSID2);
 	if (val < 0)
 		return -EIO;
 
