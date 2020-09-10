@@ -186,6 +186,7 @@
 #define PORT_SWITCH_ID_6240		0x2400
 #define PORT_SWITCH_ID_6250		0x2500
 #define PORT_SWITCH_ID_6352		0x3520
+#define PORT_SWITCH_ID_6390		0x0a10
 
 struct mv88e61xx_phy_priv {
 	struct mii_dev *mdio_bus;
@@ -827,13 +828,84 @@ static int mv88e61xx_set_cpu_port(struct phy_device *phydev)
 	return 0;
 }
 
+static void mv88e6390x_errata(struct phy_device *phydev)
+{
+	char cpu = 1;
+	char phy = 1;
+	char port = 0;
+
+	/* Write Scratch and Misc */
+	mv88e61xx_reg_write(phydev, 0x1c, 0x1a, 0x7100);
+	/* If Bit 2 = 1, CPU not attached */
+	if (mv88e61xx_reg_read(phydev, 0x1c, 0x1a) & 0x4)
+		cpu = 0;
+
+	/* Begin PHY recalibration */
+	for (phy = 1; phy <= 8; phy ++)
+		mv88e61xx_phy_write(phydev, phy, 0, 0x1140);
+	udelay(1000);
+	for (phy = 1; phy <= 8; phy ++)
+		mv88e61xx_phy_write(phydev, phy, 0x16, 0x00f8);
+	for (phy = 1; phy <= 8; phy ++)
+		mv88e61xx_phy_write(phydev, phy, 0x16, 0x00f8);
+	for (phy = 1; phy <= 8; phy ++)
+		mv88e61xx_phy_write(phydev, phy, 0x8, 0x0036);
+	for (phy = 1; phy <= 8; phy ++)
+		mv88e61xx_phy_write(phydev, phy, 0x16, 0x0000);
+	for (phy = 1; phy <= 8; phy ++)
+		mv88e61xx_phy_write(phydev, phy, 0x0, 0x9140);
+
+	/* VOD Adjustments for 10/100/1000 MB */
+	for (phy = 1; phy <= 8; phy ++) {
+		mv88e61xx_phy_write(phydev, phy, 0x16, 0x00fc);
+		mv88e61xx_phy_write(phydev, phy, 0x11, 0xcc99);
+		mv88e61xx_phy_write(phydev, phy, 0x12, 0xcccc);
+		mv88e61xx_phy_write(phydev, phy, 0x16, 0x0000);
+	}
+
+	/* Power down PHY's if in CPU_Attached mode */
+	if (cpu)
+		for (phy = 0x1; phy <= 0x8; phy ++)
+			mv88e61xx_phy_write(phydev, phy, 0x0, 0x1940);
+	/* End PHY recalibration */
+
+	/* Begin stuck port issue */
+	/* Disable all Ports */
+	for (port = 0; port <= 0xa; port ++)
+		mv88e61xx_reg_write(phydev, port, 0x4, 0x007c);
+
+	/* Perform Workaround */
+	mv88e61xx_reg_write(phydev, 0x5, 0x1a, 0x01c0);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfc00);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfc20);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfc40);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfc60);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfc80);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfca0);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfcc0);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfce0);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfd00);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfd20);
+	mv88e61xx_reg_write(phydev, 0x4, 0x1a, 0xfd40);
+
+	/* Restore forwarding state if CPU not attached: */
+	if (!cpu)
+		for (port = 0x0; port <= 0xa; port++)
+			mv88e61xx_phy_write(phydev, port, 0x4, 0x007f);
+
+}
+
 static int mv88e61xx_switch_init(struct phy_device *phydev)
 {
+	struct mv88e61xx_phy_priv *priv = phydev->priv;
 	static int init;
 	int res;
 
 	if (init)
 		return 0;
+
+	if (priv->id == PORT_SWITCH_ID_6390)
+		mv88e6390x_errata(phydev);
 
 	res = mv88e61xx_switch_reset(phydev);
 	if (res < 0)
@@ -1004,6 +1076,9 @@ static int mv88e61xx_probe(struct phy_device *phydev)
 	debug("%s ID 0x%x\n", __func__, priv->id);
 
 	switch (priv->id) {
+	case PORT_SWITCH_ID_6390:
+		priv->port_reg_base = 0;
+		/* fall-through */
 	case PORT_SWITCH_ID_6096:
 	case PORT_SWITCH_ID_6097:
 	case PORT_SWITCH_ID_6172:
@@ -1183,11 +1258,23 @@ static struct phy_driver mv88e6071_driver = {
 	.shutdown = &genphy_shutdown,
 };
 
+static struct phy_driver mv88e6390_driver = {
+	.name = "Marvell MV88E6390",
+	.uid = 0x1410c00,
+	.mask = 0xfffffff0,
+	.features = PHY_GBIT_FEATURES,
+	.probe = mv88e61xx_probe,
+	.config = mv88e61xx_phy_config,
+	.startup = mv88e61xx_phy_startup,
+	.shutdown = &genphy_shutdown,
+};
+
 int phy_mv88e61xx_init(void)
 {
 	phy_register(&mv88e61xx_driver);
 	phy_register(&mv88e609x_driver);
 	phy_register(&mv88e6071_driver);
+	phy_register(&mv88e6390_driver);
 
 	return 0;
 }
