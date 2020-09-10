@@ -1222,13 +1222,13 @@ int get_phy_id(struct mii_dev *bus, int smi_addr, int devad, u32 *phy_id)
 	if (val < 0)
 		return val;
 
-	val = mv88e61xx_phy_read_indirect(&temp_mii, 0, devad, MII_PHYSID1);
+	val = mv88e61xx_phy_read_indirect(&temp_mii, 1, devad, MII_PHYSID1);
 	if (val < 0)
 		return -EIO;
 
 	*phy_id = val << 16;
 
-	val = mv88e61xx_phy_read_indirect(&temp_mii, 0, devad, MII_PHYSID2);
+	val = mv88e61xx_phy_read_indirect(&temp_mii, 1, devad, MII_PHYSID2);
 	if (val < 0)
 		return -EIO;
 
