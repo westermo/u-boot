@@ -94,6 +94,8 @@
 #define PORT_REG_STATUS_CMODE_1000BASE_X	0x9
 #define PORT_REG_STATUS_CMODE_SGMII		0xa
 
+#define PORT_REG_PHYS_CTRL_RGMII_RX_TIM	BIT(15)
+#define PORT_REG_PHYS_CTRL_RGMII_TX_TIM	BIT(14)
 #define PORT_REG_PHYS_CTRL_PCS_AN_EN	BIT(10)
 #define PORT_REG_PHYS_CTRL_PCS_AN_RST	BIT(9)
 #define PORT_REG_PHYS_CTRL_FC_VALUE	BIT(7)
@@ -747,9 +749,25 @@ static int mv88e61xx_fixed_port_setup(struct phy_device *phydev, u8 port)
 		       PORT_REG_PHYS_CTRL_SPD1000;
 	}
 
-	if (port == CONFIG_MV88E61XX_CPU_PORT)
+	if (port == CONFIG_MV88E61XX_CPU_PORT) {
 		val |= PORT_REG_PHYS_CTRL_LINK_VALUE |
 		       PORT_REG_PHYS_CTRL_LINK_FORCE;
+
+		switch (phydev->interface) {
+		case PHY_INTERFACE_MODE_RGMII_ID:
+			val |= PORT_REG_PHYS_CTRL_RGMII_RX_TIM |
+			       PORT_REG_PHYS_CTRL_RGMII_TX_TIM;
+			break;
+		case PHY_INTERFACE_MODE_RGMII_RXID:
+			val |= PORT_REG_PHYS_CTRL_RGMII_RX_TIM;
+			break;
+		case PHY_INTERFACE_MODE_RGMII_TXID:
+			val |= PORT_REG_PHYS_CTRL_RGMII_TX_TIM;
+			break;
+		default:
+			break;
+		}
+	}
 
 	return mv88e61xx_port_write(phydev, port, PORT_REG_PHYS_CTRL,
 				   val);
