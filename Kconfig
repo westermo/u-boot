@@ -531,6 +531,13 @@ config SPL_FIT_GENERATOR
 	  passed a list of supported device tree file stub names to
 	  include in the generated image.
 
+config SPL_FIT_GENERATOR_ENV
+	string ".its file generator script environment"
+	depends on SPL_FIT
+	help
+	  Some scripts require environment variables to set to target specific
+	  values. Allow these to be specified in the configuration.
+
 endif # SPL
 
 endif # FIT
