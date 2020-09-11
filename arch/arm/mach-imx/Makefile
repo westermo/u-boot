@@ -199,6 +199,8 @@ endif
 
 ifdef CONFIG_ARM64
 ifeq ($(CONFIG_ARCH_IMX8M), y)
+qspi-header := $(if $(CONFIG_QSPI_BOOT),board/$(VENDOR)/$(BOARD)/qspi_header,)
+
 SPL:
 
 MKIMAGEFLAGS_flash.bin = -n spl/u-boot-spl.cfgout \
@@ -210,8 +212,13 @@ ifeq ($(DEPFILE_EXISTS),0)
 	$(IMX8M_DEPFILES) spl/u-boot-spl.cfgout 1
 endif
 
-flash.bin: spl/u-boot-spl-ddr.bin u-boot.itb FORCE
+flash.bin: spl/u-boot-spl-ddr.bin u-boot.itb $(qspi-header) FORCE
 	$(call if_changed,mkimage)
+ifeq ($(CONFIG_QSPI_BOOT),y)
+	@cat board/$(CONFIG_SYS_VENDOR)/$(CONFIG_SYS_BOARD)/qspi_header flash.bin >flash-fspi.bin
+	@mv flash-fspi.bin flash.bin
+endif
+
 endif
 
 ifeq ($(CONFIG_ARCH_IMX8), y)
