@@ -15,6 +15,7 @@
 #include <asm/mach-imx/mxc_i2c.h>
 #include <i2c.h>
 #include <asm/io.h>
+#include <led.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -91,3 +92,25 @@ int board_late_init(void)
 	return 0;
 }
 
+int last_stage_init(void)
+{
+	struct udevice *led;
+	struct mii_dev *smi;
+	int err, port;
+
+	err = led_get_by_label("red:status", &led);
+	if (!err)
+		led_set_state(led, LEDST_OFF);
+
+	smi = miiphy_get_dev_by_name("smi");
+	if (!smi)
+		return 0;
+
+	/* Setup switch LEDs: Green:Link/Act Yellow:Disabled */
+	for (port = 1; port <= 8; port++)
+		smi->write(smi, port, MDIO_DEVAD_NONE, 0x16, 0x805e);
+
+	smi->write(smi,  9, MDIO_DEVAD_NONE, 0x16, 0x807e);
+	smi->write(smi, 10, MDIO_DEVAD_NONE, 0x16, 0x807e);
+	return 0;
+}
