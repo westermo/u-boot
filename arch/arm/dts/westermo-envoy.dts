@@ -27,6 +27,14 @@
 	};
 };
 
+&cpu_alert0 {
+	temperature = <95000>;
+};
+
+&cpu_crit0 {
+	temperature = <105000>;
+};
+
 &iomuxc {
 	pinctrl-names = "default";
 
