@@ -146,11 +146,19 @@
 #define SMI_CMD_CLAUSE_22		BIT(12)
 #define SMI_CMD_CLAUSE_22_OP_READ	(2 << 10)
 #define SMI_CMD_CLAUSE_22_OP_WRITE	(1 << 10)
+#define SMI_CMD_CLAUSE_45_OP_WADDR	(0 << 10)
+#define SMI_CMD_CLAUSE_45_OP_WDATA	(1 << 10)
+#define SMI_CMD_CLAUSE_45_OP_WDATAINC	(2 << 10)
+#define SMI_CMD_CLAUSE_45_OP_RDATA	(3 << 10)
 
 #define SMI_CMD_READ			(SMI_BUSY | SMI_CMD_CLAUSE_22 | \
 					 SMI_CMD_CLAUSE_22_OP_READ)
 #define SMI_CMD_WRITE			(SMI_BUSY | SMI_CMD_CLAUSE_22 | \
 					 SMI_CMD_CLAUSE_22_OP_WRITE)
+
+#define SMI_CMD_C45_WADDR		(SMI_BUSY | SMI_CMD_CLAUSE_45_OP_WADDR)
+#define SMI_CMD_C45_WDATA		(SMI_BUSY | SMI_CMD_CLAUSE_45_OP_WDATA)
+#define SMI_CMD_C45_RDATA		(SMI_BUSY | SMI_CMD_CLAUSE_45_OP_RDATA)
 
 #define SMI_CMD_ADDR_SHIFT		5
 #define SMI_CMD_ADDR_WIDTH		5
@@ -220,6 +228,21 @@ static inline int smi_cmd_read(int addr, int reg)
 static inline int smi_cmd_write(int addr, int reg)
 {
 	return smi_cmd(SMI_CMD_WRITE, addr, reg);
+}
+
+static inline int smi_cmd_c45_write_addr(void)
+{
+	return smi_cmd(SMI_CMD_C45_WADDR, 0, 0);
+}
+
+static inline int smi_cmd_c45_write(int dev, int devad)
+{
+	return smi_cmd(SMI_CMD_C45_WDATA, dev, devad);
+}
+
+static inline int smi_cmd_c45_read(int dev, int devad)
+{
+	return smi_cmd(SMI_CMD_C45_RDATA, dev, devad);
 }
 
 __weak int mv88e61xx_hw_reset(struct phy_device *phydev)
@@ -354,8 +377,8 @@ static int mv88e61xx_phy_wait(struct phy_device *phydev)
 	return -ETIMEDOUT;
 }
 
-static int mv88e61xx_smi_phy_read(struct mii_dev *smi_wrapper, int dev,
-				  int devad, int reg)
+static int mv88e61xx_smi_phy_read_c22(struct mii_dev *smi_wrapper, int dev,
+				      int reg)
 {
 	struct mv88e61xx_phy_priv *priv;
 	struct phy_device *phydev;
@@ -379,8 +402,58 @@ static int mv88e61xx_smi_phy_read(struct mii_dev *smi_wrapper, int dev,
 				  GLOBAL2_REG_PHY_DATA);
 }
 
-static int mv88e61xx_smi_phy_write(struct mii_dev *smi_wrapper, int dev,
-				   int devad, int reg, u16 data)
+static int mv88e61xx_smi_phy_read_c45(struct mii_dev *smi_wrapper, int dev,
+				      int devad, int reg)
+{
+	struct mv88e61xx_phy_priv *priv;
+	struct phy_device *phydev;
+	int res;
+
+	phydev = (struct phy_device *)smi_wrapper->priv;
+	priv = phydev->priv;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_DATA, reg);
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_CMD,
+				  smi_cmd_c45_write_addr());
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_phy_wait(phydev);
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_CMD,
+				  smi_cmd_c45_read(dev, devad));
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_phy_wait(phydev);
+	if (res < 0)
+		return res;
+
+	/* Read retrieved data */
+	return mv88e61xx_reg_read(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_DATA);
+
+}
+
+static int mv88e61xx_smi_phy_read(struct mii_dev *smi_wrapper, int dev,
+				  int devad, int reg)
+{
+	if (devad == MDIO_DEVAD_NONE)
+		return mv88e61xx_smi_phy_read_c22(smi_wrapper, dev, reg);
+	else
+		return mv88e61xx_smi_phy_read_c45(smi_wrapper, dev, devad, reg);
+}
+
+static int mv88e61xx_smi_phy_write_c22(struct mii_dev *smi_wrapper, int dev,
+				       int reg, u16 data)
 {
 	struct mv88e61xx_phy_priv *priv;
 	struct phy_device *phydev;
@@ -403,6 +476,55 @@ static int mv88e61xx_smi_phy_write(struct mii_dev *smi_wrapper, int dev,
 
 	/* Wait for command to complete */
 	return mv88e61xx_phy_wait(phydev);
+}
+
+static int mv88e61xx_smi_phy_write_c45(struct mii_dev *smi_wrapper, int dev,
+				       int devad, int reg, u16 data)
+{
+		struct mv88e61xx_phy_priv *priv;
+	struct phy_device *phydev;
+	int res;
+
+	phydev = (struct phy_device *)smi_wrapper->priv;
+	priv = phydev->priv;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_DATA, reg);
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_CMD,
+				  smi_cmd_c45_write_addr());
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_phy_wait(phydev);
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_DATA, data);
+	if (res < 0)
+		return res;
+
+	res = mv88e61xx_reg_write(phydev, priv->global2,
+				  GLOBAL2_REG_PHY_CMD,
+				  smi_cmd_c45_write(dev, devad));
+	if (res < 0)
+		return res;
+
+	return mv88e61xx_phy_wait(phydev);
+}
+
+static int mv88e61xx_smi_phy_write(struct mii_dev *smi_wrapper, int dev,
+				   int devad, int reg, u16 data)
+{
+	if (devad == MDIO_DEVAD_NONE)
+		return mv88e61xx_smi_phy_write_c22(smi_wrapper, dev, reg, data);
+	else
+		return mv88e61xx_smi_phy_write_c45(smi_wrapper, dev, devad, reg,
+						   data);
 }
 
 static int mv88e61xx_smi_read(struct mii_dev *smi, int dev,
