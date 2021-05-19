@@ -97,7 +97,7 @@
 #define CONFIG_EXTRA_ENV_SETTINGS					\
 	"bootcmd_mfg=boot\0"						\
 	"bootdelay=0\0"							\
-	"itbboot=bootm 0x50000000#0000-lynx-2510\0"			\
+	"itbboot=bootm 0x50000000#0000-envious\0"			\
 	"flashboot=sf probe; sf read 0x50000000 0x200000 0x03800000; run itbboot\0" \
 	"netboot=dhcp netbox-os-envoy.itb; run itbboot\0"		\
 	"bootargs=console=ttymxc0,115200 root=/dev/ram ramdisk_size=32000 quiet\0"
